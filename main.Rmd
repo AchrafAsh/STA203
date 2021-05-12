@@ -1,0 +1,385 @@
+---
+title: "Projet STA203"
+output: github_document
+---
+
+```{r setup, include=F, echo=F}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+graphics.off()
+setwd('/home/achraf/Documents/Areas/ENSTA/STA203/projet/')
+set.seed(42)
+
+require(corrplot)
+require(glmnet)
+require(FactoMineR)
+require(pls)
+require(MASS)
+```
+
+# 1 Un peu de théorie
+
+1.
+$Y = \theta_0 \mathbb{1}_n + X \theta + \epsilon$
+- Les résidus sont gaussiens
+
+**Rappeler le cadre de la régréssion de ridge**
+Dans le cas d'un jeux de données à grandes dimension ($n << p$), les valeurs propres de $X$
+
+
+2.
+On commence par centrer $X_j$ et $Y$:
+$$
+\tilde{X}_j = X_j - \bar{X}_j 1_n
+$$
+$$
+\tilde{Y} = Y - \bar{Y} 1_n
+$$
+
+Cela annule l'intercept. L'estimateur de Ridge est alors (à $\kappa$ fixé):
+$$
+\hat\theta_{ridge}(\kappa) = (\tilde{X}'\tilde{X} + \kappa Id_p)^{-1} \tilde{X}'\tilde{Y}
+$$
+On obtient:
+$$
+\hat{Y}_{ridge} =  \left( X_j - \bar{X_j} 1_n \right)_j\hat{\theta}_{ridge} + \bar{Y}1_n
+$$
+$$
+\hat{Y}_{ridge} =  X_j \hat{\theta}_{ridge} + \left( \bar{Y} - \sum_j^n{ \bar{X}_j \hat{\theta}_{ridge, \; j} } \right) 1_n
+$$
+Et nos estimateurs de $\theta$ et $\theta_0$ sont donc:
+$$
+\hat{\theta} = \hat{\theta}_{ridge}
+\\
+\hat{\theta}_0 = \bar{Y} - \bar{X} \hat{\theta}_{ridge}
+$$
+**Relation entre paramétrisation sans ou avec variables centrées réduites**
+
+$$
+Y = \theta_0 1_n + X \theta + \epsilon
+\\
+Y = \tilde{\theta}_0 1_n + X \tilde{\theta} + \epsilon
+$$
+On a donc les relations suivantes:
+$$
+\theta_0 = \tilde{\theta_0} - X \tilde{\theta}
+\\
+\theta_j = \tilde{\theta}_j \;\;,\;\; j \in [1, \; p]
+$$
+
+# 2 Analyse Exploratoire
+
+```{r}
+load('cookie.app.RData')
+load('cookie.val.RData')
+```
+
+## Q1
+
+Lecture des données
+```{r}
+xtrain <- cookie.app[,-1]
+head(xtrain)
+ytrain <- cookie.app$sucres
+head(ytrain)
+
+xtest <- cookie.val[,-1]
+head(xtrain)
+ytest <- cookie.val$sucres
+head(ytrain)
+```
+
+Etude uni-varié
+```{r}
+boxplot(xtrain)
+```
+
+Affichage des spectres
+```{r}
+sapply( 1:nrow(xtrain), function(i){
+                    matplot(1:700, t(xtrain[i,]), type = 'l',
+                            main = paste("Spectre de l'individu: ", i," .")
+                            , xlab="Fréquence dans le proche infra-rouge"
+                            , ylab="Absorbance") })
+
+```
+
+Corrélation entre les mesures aux différentes fréquences
+```{r}
+corrplot(cor(xtrain),is.corr = F)
+C <- cor(xtrain)
+```
+
+## Q2
+
+ACP
+```{r}
+res.acp <- PCA(xtrain, ncp = 700,graph=F)
+```
+Graphe des valeurs propres
+```{r}
+barplot(res.acp$eig[,1] / sum(res.acp$eig[,1]) * 100, las = 2)
+abline(h = 100 / 700, col = "red")
+which(res.acp$eig[,3] > 100 - 1/7)
+```
+Au nombre de 39: Problème de dégénérescence du rang de X
+
+Tracer des nuages sur les six premiers axes principaux
+```{r}
+par(mfrow = c(1, 2))
+
+plot(res.acp, axes = c(1, 2), choix = "ind",
+     graph.type="classic")
+
+plot(res.acp, axes = c(1, 2), choix = "var",
+     graph.type="classic")
+
+plot(res.acp, axes = c(2, 3), choix = "ind",
+     graph.type="classic")
+
+plot(res.acp, axes = c(2, 3), choix = "var",
+     graph.type="classic")
+
+plot(res.acp, axes = c(3, 4), choix = "ind",
+     graph.type="classic")
+
+plot(res.acp, axes = c(3, 4), choix = "var",
+     graph.type="classic")
+
+plot(res.acp, axes = c(4, 5), choix = "ind",
+     graph.type="classic")
+
+plot(res.acp, axes = c(4, 5), choix = "var",
+     graph.type="classic")
+
+plot(res.acp, axes = c(5, 6), choix = "ind",
+     graph.type="classic")
+
+plot(res.acp, axes = c(5, 6), choix = "var",
+     graph.type="classic")
+```
+On retrouve bien que les variables sont représentées seulement dans les deux premiers axes principaux
+
+## Q3
+```{r}
+reconstruct <- function(res, nr, Xm, Xsd){
+  Fs <- as.matrix(res$ind$coord[,1:nr])
+  us <- as.matrix(res$svd$V[,1:nr])
+  rep <- Fs[,1]%*%t(us[,1])
+  if(nr > 1){
+    for( i in 2:nr){
+      rep <- rep + Fs[,i]%*%t(us[,i])
+    }
+  }
+  rep<- t(apply(rep, 1, function(x){x*Xsd+Xm}))
+  return(rep)
+}
+```
+
+Verification:
+```{r}
+Xm <- apply(xtrain, 2, mean)
+Xsd <- apply(xtrain, 2, function(x){sqrt((var(x)*(length(x)-1))/length(x))})
+
+reconstruct(res.acp, 1, Xm, Xsd)
+sum((reconstruct(res.acp, 39, Xm, Xsd) - xtrain)^2)/28000
+sum(abs(reconstruct(res.acp, 39, Xm, Xsd) - xtrain))/28000
+
+plot(1:700,reconstruct(res.acp, 39, Xm, Xsd)[1,], type = 'l')
+for(i in 2:40){
+  lines(1:700, reconstruct(res.acp, 39, Xm, Xsd)[i,], type = 'l')
+}
+```
+Representer la reconstruction
+```{r}
+par(mfrow = c(2, 3))
+nr = c(1, 2, 3, 4, 5, 39)
+for(i in nr){
+  X <- reconstruct(res.acp, i, Xm, Xsd)
+  RMSE <- round(sqrt(sum((X - xtrain)^2)/28000), 5)
+  MAE <- round(sum(abs(X - xtrain))/28000, 5)
+  plot(1:700,X[1,], type = 'l',
+       main = paste("Reconstruction pour nr =", i, "; RMSE =", RMSE, "MAE =", MAE,"."),
+       xlab = "Fréquence (pas en HZ)",
+       ylab = "Amplitude")
+  for(j in 2:nrow(X)){
+    lines(1:700,X[j,], type = 'l')
+  }
+}
+
+par(mfrow = c(1, 1))
+nr = c(1, 2, 3, 4, 5, 39)
+X <- reconstruct(res.acp, 1, Xm, Xsd)
+X24 <- X[,24]
+for(i in nr[-1]){
+  X <- reconstruct(res.acp, i, Xm, Xsd)
+  X24 <- cbind(X24, X[,24])
+}
+plot(X24[,1], col = 1)
+for(j in 2:6){
+  points(X24[,j], col = j)
+}
+```
+
+
+# 3 Régression pénalisée
+
+## Q1
+```{r}
+grid = 10^seq(6,-10,length=100)
+X = as.matrix(xtrain)
+Y = as.matrix(ytrain)
+ridge.fit = glmnet(X, Y, alpha=0, lambda=grid)
+plot(grid, coef(ridge.fit)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept')
+```
+```{r}
+X.mean = apply(X, 2,mean)
+mean(Y) - X.mean %*% coef(ridge.fit)[-1,1]
+coef(ridge.fit)[1,1]
+```
+
+```{r}
+xtrain.centered = xtrain - X.mean
+ytrain.centered = ytrain - mean(ytrain)
+X.centered = as.matrix(xtrain.centered)
+Y.centered = as.matrix(ytrain.centered)
+ridge.fit.centered = glmnet(X.centered, Y, alpha=0, lambda=grid)
+plot(grid, coef(ridge.fit.centered)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept')
+```
+
+```{r}
+as.vector(coef(ridge.fit)[1,])
+```
+On remarque un changement seulement lorsque l'on centre les variables $X_j$. L'intercept tend alors vers 150.8 (au lieu de -6.7).
+```{r}
+as.vector(coef(ridge.fit.centered)[1,])
+```
+
+```{r}
+X.scaled = scale(X)
+Y.scaled = scale(Y)
+
+# retrouver la démo de Jérome
+```
+## Q2
+```{r}
+out.ridge = lm.ridge( sucres ~ ., data=cookie.app, lambda=grid )
+as.vector(coef(out.ridge)[,1])
+```
+```{r}
+as.vector(coef(ridge.fit)[1,])
+```
+On ne retrouve pas les mêmes résultats et je sais pas pourquoi!
+
+## Q3
+```{r}
+set.seed(42)
+B = 4
+folds = cvsegments(nrow(X), B, type="random")
+
+errors = matrix(NA, B, length(grid))
+
+for (b in 1:B)
+{
+  subsetb = unlist(folds[[b]])
+  ridge.res = glmnet(X[-subsetb,], Y[-subsetb,], alpha=0, lambda=grid)
+  # trouver le modèle avec la plus faible MSE
+  for (j in 1:length(grid))
+  {
+    coef = coef(ridge.res)[,j]
+    pred = cbind(1,X[subsetb,])%*%coef
+    errors[b, j] = mean( (Y[subsetb,] - pred)^2 )
+  }
+}
+```
+
+```{r}
+lambd.opt = grid[which.min(apply(errors, 2, mean))]
+lambd.opt = grid[which.min(apply(errors, 2, sum))] # même résultat
+```
+```{r}
+```
+
+```{r}
+q=qnorm(0.95)
+
+plot(log(grid), apply(errors, 2, mean), type='l', col='red', lwd=3, xlab='Log(λ)', ylab='MSE')
+segments(x0=log(grid), y0=apply(errors, 2, function(err) mean(err) - q * sd(err) / sqrt(B)),
+         x1=log(grid), y1=apply(errors, 2, function(err) mean(err) + q * sd(err) / sqrt(B)),
+         col='grey')
+```
+```{r}
+out.cv.ridge = cv.glmnet(X, Y, alpha=0, lambda=grid, type.measure='mse', nfolds=B)
+plot(out.cv.ridge)
+plot(out.cv.ridge)
+```
+```{r}
+lm.ridge = glmnet(X, Y, alpha=0, lambda=lambd.opt)
+preds = predict(lm.ridge, newx=as.matrix(xtest))
+mean( (preds - ytest)^2  )
+```
+
+# 4 Régression logistique pénalisée
+
+## Q1
+Regression logistique:
+$$
+Z_i \sim \mathcal B(1, \pi(x_i)) \; ; i = 1,...,n
+$$
+$$
+logit(\pi(x_i)) = x_i \theta
+$$
+
+```{r}
+z = ytrain > 18
+ztest = ytest > 18
+## peut être qu'il faut dire si c'est en dessous ou au dessus de 18 (0 / 1)
+```
+Sont ils équilibrés:
+```{r}
+table(z)
+table(ztest)
+```
+C'est raisonable
+
+## Q2
+```{r}
+cv.out.ridge = cv.glmnet(X, z, alpha=0, nfolds=B, lambda=grid)
+cv.out.lasso = cv.glmnet(X, z, alpha=1, nfolds=B, lambda=grid) 
+
+plot(cv.out.ridge, main='Ridge')
+plot(cv.out.lasso, main='Lasso')
+```
+
+## Q3
+```{r}
+sensibility = function(res) res[2,2] / sum(res[2,])
+specificity = function(res) res[1,1] / sum(res[1,])
+
+alpha = NULL
+beta = NULL
+
+for (s in seq(0, 1, .01))
+{
+  preds = 1/ (1 + exp( - cbind(1, as.matrix(xtrain)) %*% as.matrix(coef)))
+  res = table(preds > s, z)
+  
+  if(sum(preds > s) == 0)
+  {
+    alpha = cbind(alpha, 0)
+    beta = cbind(beta, res[1] / sum(res))
+  }
+  else {
+    if(sum(preds > s) == length(preds))
+    {
+      alpha = cbind(alpha, res[2] / sum(res))
+      beta = cbind(beta, 0)
+    } else {
+      alpha = cbind(alpha, res[2,2] / sum(res[2,]))
+      beta = cbind(beta, res[1,1] / sum(res[1,]))
+    }
+  }
+}
+
+plot(1-beta, alpha, type="l")
+```
