@@ -1,13 +1,19 @@
 ---
 title: "Projet STA203"
-output: github_document
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+authors: Achraf Ait Sidi Hammou, Jérôme Roche
 ---
 
 ```{r setup, include=F, echo=F}
 knitr::opts_chunk$set(echo = TRUE)
 rm(list=ls())
 graphics.off()
-setwd('/home/achraf/Documents/Areas/ENSTA/STA203/projet/')
+#setwd('/home/achraf/Documents/Areas/ENSTA/STA203/projet/')
+setwd('~/Documents/ENSTA_2021/STA203/Projet/')
 set.seed(42)
 
 require(corrplot)
@@ -15,19 +21,23 @@ require(glmnet)
 require(FactoMineR)
 require(pls)
 require(MASS)
+require(latex2exp)
 ```
 
 # 1 Un peu de théorie
 
-1.
-$Y = \theta_0 \mathbb{1}_n + X \theta + \epsilon$
-- Les résidus sont gaussiens
+Le nombre de spectres n étant très largement inférieur au nombre de fréquences p, cette étude rentre dans le cadre des données dites de grande dimension.
+
+### Question 1
+Lorsque l'on modélise une régression linéaire (sous les bonnes hypothèses): $Y = \theta_0 \mathbb{1}_n + X \theta + \epsilon$. On obtient des résidus gaussiens.
 
 **Rappeler le cadre de la régréssion de ridge**
 Dans le cas d'un jeux de données à grandes dimension ($n << p$), les valeurs propres de $X$
+Dans certains cas, la matrice $X'X$ n'est pas injective. Dans ce cas, on ne peut pas effectuer de régression linéaire dans les bonnes conditions. C'est pourquoi on considère la matrice $X'X  +\kappa I_n$ qui possède toutes ses valeurs propres dans $R^*$.
 
+### Question 2
+**On décide de ne pas pénaliser l'intercept. Calculons l'estimateur des coefficients.**
 
-2.
 On commence par centrer $X_j$ et $Y$:
 $$
 \tilde{X}_j = X_j - \bar{X}_j 1_n
@@ -53,30 +63,62 @@ $$
 \\
 \hat{\theta}_0 = \bar{Y} - \bar{X} \hat{\theta}_{ridge}
 $$
-**Relation entre paramétrisation sans ou avec variables centrées réduites**
+**Relation entre paramétrisation sans ou avec variables centrées**
 
+Lorsque les variables n'ont pas été centrées, on a le modèle:
 $$
 Y = \theta_0 1_n + X \theta + \epsilon
-\\
-Y = \tilde{\theta}_0 1_n + X \tilde{\theta} + \epsilon
+$$
+Lorsque les variables ont été centrées, on a le modèle:
+$$
+\tilde{Y} =  \tilde{X} \tilde{\theta} + \epsilon
 $$
 On a donc les relations suivantes:
 $$
-\theta_0 = \tilde{\theta_0} - X \tilde{\theta}
+\theta_0 = \bar{Y} - \bar{X}\tilde{\theta}
 \\
 \theta_j = \tilde{\theta}_j \;\;,\;\; j \in [1, \; p]
 $$
 
+### Question 3
+
+On part de la décomposition en valeurs singulières de la matrice $X$.
+Ainsi:
+$$
+X'X = (\sum_{i=1}^r{\sigma_iv_iu_i'})(\sum_{j=1}^r{\sigma_ju_jv_j'})\\
+= \sum_{i=1}^r{\sum_{j=1}^r{\sigma_i\sigma_jv_iu_i'u_jv_j'}}\\
+= \sum_{j=1}^r{\sigma_j^2v_jv_j'}
+$$
+En effet, en raison de l'orthonormalité des familles $(u_j)$ et $(v_j)$ on a que $u_i'u_i = \delta_{ij}$
+
+Ensuite on cherche à inverser la matrice $X'X + \lambda I_d$:
+$$
+(X'X + \lambda I_d)\sum
+$$
+Nous n'arrivons pas à trouver la formule demander. J'ai l'impression qu'il faut compléter la famille $(v_j)_{j \in [1;r]}$ dans $R^n$ et comptabiliser les différents vecteurs propres associés à la valeur propre $1/\lambda$ (dans notre cadre il y en a au moins un). Dans le doute on garde la formule avancée par l'énoncé mais notre solution mène au même résultat. 
+
+
+Enfin on développe:
+$$
+A_{\lambda} = (X'X  +\lambda Id)^{-1}X'\\
+= (\sum_{j=1}^r{\frac{1}{\sigma_j + \lambda}v_jv_j'})(\sum_{i=1}^r\sigma_iv_iu_i')\\
+= \sum_{j=1}^r{\frac{\sigma_j}{\sigma_j^2 + \lambda}v_ju_j'}\\ \rightarrow_{\lambda \rightarrow 0}\sum_{j=1}^r{\frac{1}{\sigma_j}v_ju_j'}
+$$
+La limite se calcule facilement car il n'y a pas de forme indéterminée est que r est fini.
+
+
 # 2 Analyse Exploratoire
+
+Afin de prendre contact avec le jeu de données, on commence par une analyse exploratoire.
 
 ```{r}
 load('cookie.app.RData')
 load('cookie.val.RData')
 ```
 
-## Q1
+### Question 1
 
-Lecture des données
+Lecture des données: on crée les matrices xtrain et xtest contenant respectivement les variables explicatives du jeu d'apprentissage et du jeu de test, puis les vecteurs ytrain et ytest pour les réponses (teneur en sucre).
 ```{r}
 xtrain <- cookie.app[,-1]
 head(xtrain)
@@ -89,13 +131,13 @@ ytest <- cookie.val$sucres
 head(ytrain)
 ```
 
-Etude uni-varié
+On commence par effectuer une étude uni-varié
 ```{r}
 boxplot(xtrain)
 ```
 
 Affichage des spectres
-```{r}
+```{r , include = T, results = "hide"}
 sapply( 1:nrow(xtrain), function(i){
                     matplot(1:700, t(xtrain[i,]), type = 'l',
                             main = paste("Spectre de l'individu: ", i," .")
@@ -104,28 +146,35 @@ sapply( 1:nrow(xtrain), function(i){
 
 ```
 
-Corrélation entre les mesures aux différentes fréquences
+On souhaite maintenant étudier la corrélation entre les mesures aux différentes fréquences.
 ```{r}
-corrplot(cor(xtrain),is.corr = F)
-C <- cor(xtrain)
+corrplot::corrplot(cor(xtrain), method = "color")
+# res <- acf(xtrain, lag.max = 1, plot = F)
+# C <- cor(xtrain)
 ```
 
-## Q2
+Les spectres des différents individus sont plutôt similaires les uns aux autres. C'est ce que l'on retrouve, il y a dans l'ensemble une forte corrélation entre les différentes mesures aux différentes fréquences. Petite exception, il semblerait que les mesures aux fréquences proche de 700 soit décorrélé des mesures en amont du spectre. Ce n'est donc pas les mesures qui vont le plus nous intéresser pour déterminer la contenance en sucre des cookies. Peut-être que dans le cas de plus grande dimension, il serait intéressant de réduire les données en supprimant celles qui sont décorrélé ?
 
-ACP
+### Question 2
+
+On commence par réaliser l'ACP grâce au package FACTOMINER préalablement installé.
 ```{r}
 res.acp <- PCA(xtrain, ncp = 700,graph=F)
 ```
-Graphe des valeurs propres
+
+On trace ensuite le graphe des valeurs propres et déterminer lesquels sont significatives grâce au critère de ???
+
 ```{r}
 barplot(res.acp$eig[,1] / sum(res.acp$eig[,1]) * 100, las = 2)
 abline(h = 100 / 700, col = "red")
-which(res.acp$eig[,3] > 100 - 1/7)
+which(res.acp$eig[,2] > 1/7)
 ```
-Au nombre de 39: Problème de dégénérescence du rang de X
 
-Tracer des nuages sur les six premiers axes principaux
-```{r}
+On remarque que les valeurs propres sont au nombre de 39. On a un problème de dégénérescence du rang de X. La matrice $X'X$ n'est pas injective, on se trouve bien dans le cadre discuté en première partie.
+
+On trace désormais les nuages sur les six premiers axes principaux:
+
+```{r, warning= F}
 par(mfrow = c(1, 2))
 
 plot(res.acp, axes = c(1, 2), choix = "ind",
@@ -158,9 +207,17 @@ plot(res.acp, axes = c(5, 6), choix = "ind",
 plot(res.acp, axes = c(5, 6), choix = "var",
      graph.type="classic")
 ```
-On retrouve bien que les variables sont représentées seulement dans les deux premiers axes principaux
 
-## Q3
+On retrouve bien que les variables sont très bien représentées seulement sur les deux premiers axes principaux. En effet, dans le graphe des variables on retrouve des vecteurs qui coincident avec la projection de l'hypersphère uniquement dans les deux premiers axes principaux. C'est cohérent avec le fait qu'ils retiennent entre 98 et 99% de l'information.
+
+### Question 3
+
+Pour effectuer une reconstruction du nuage à partir d'une ACP on va utiliser la formule suivante:
+$$
+X = \sum_s{F_su_s'} 
+$$
+Avec $F_s$ est l'axe principal s associé à $u_s$ vecteur propre numéro s de la matrice de corrélation. On dit que la reconstruction est complète si s parcourt toutes les valeurs propres de l amatrice de corrélation.
+
 ```{r}
 reconstruct <- function(res, nr, Xm, Xsd){
   Fs <- as.matrix(res$ind$coord[,1:nr])
@@ -176,23 +233,32 @@ reconstruct <- function(res, nr, Xm, Xsd){
 }
 ```
 
-Verification:
-```{r}
+On vérifie que la fonction fonctionne correctement en effectuant la reconstruction complète:
+```{r, fig.width= 10}
 Xm <- apply(xtrain, 2, mean)
 Xsd <- apply(xtrain, 2, function(x){sqrt((var(x)*(length(x)-1))/length(x))})
 
-reconstruct(res.acp, 1, Xm, Xsd)
-sum((reconstruct(res.acp, 39, Xm, Xsd) - xtrain)^2)/28000
-sum(abs(reconstruct(res.acp, 39, Xm, Xsd) - xtrain))/28000
+reconstruction_tot <- reconstruct(res.acp, 39, Xm, Xsd)
 
-plot(1:700,reconstruct(res.acp, 39, Xm, Xsd)[1,], type = 'l')
+RMSE <- sum((reconstruction_tot - xtrain)^2)/28000
+MAE <- sum(abs(reconstruct(res.acp, 39, Xm, Xsd) - xtrain))/28000
+
+
+plot(1:700,reconstruct(res.acp, 39, Xm, Xsd)[1,], type = 'l',
+     main = paste("Reconstruction complète; RMSE =", RMSE, "MAE =", MAE,"."),
+     xlab = "Fréquence (pas en HZ)",
+     ylab = "Amplitude")
 for(i in 2:40){
   lines(1:700, reconstruct(res.acp, 39, Xm, Xsd)[i,], type = 'l')
 }
 ```
-Representer la reconstruction
-```{r}
-par(mfrow = c(2, 3))
+
+Au vue des erreurs commissent on peut considérer que notre reconstruction est efficace.
+
+On effectue maintenant la reconstruction pour $n_r = 1, 2, ..., 5, 39$
+
+```{r, fig.width= 10, fig.height= 12}
+par(mfrow = c(3, 2))
 nr = c(1, 2, 3, 4, 5, 39)
 for(i in nr){
   X <- reconstruct(res.acp, i, Xm, Xsd)
@@ -206,7 +272,11 @@ for(i in nr){
     lines(1:700,X[j,], type = 'l')
   }
 }
+```
 
+On représente aussi les courbes à ces six niveaux pour la variables $X_{24}$
+
+```{r}
 par(mfrow = c(1, 1))
 nr = c(1, 2, 3, 4, 5, 39)
 X <- reconstruct(res.acp, 1, Xm, Xsd)
@@ -215,65 +285,98 @@ for(i in nr[-1]){
   X <- reconstruct(res.acp, i, Xm, Xsd)
   X24 <- cbind(X24, X[,24])
 }
-plot(X24[,1], col = 1)
+plot(X24[,1], col = 1, pch = 16,xlab = 'Individus', ylab = 'Valeur de X24')
 for(j in 2:6){
-  points(X24[,j], col = j)
+  points(X24[,j], col = j, pch = 16)
 }
+legend("topright", col = 1:6, pch = 16,legend = c('nr = 1', 'nr = 2', 'nr = 3', 'nr = 4', 'nr = 5', 'nr = 39'), box.lty=0, inset = 0.02)
 ```
 
+On retrouve bien que pour chaque individu plus la reconstruction contient d'information, plus la valeur de $X_24$ se rapproche de la reconstruction totale. Ce résultat est cohérent avec ce qui était attendu. Peu importe la variable que l'on considère on devrait retrouver des résultats similaires. 
 
 # 3 Régression pénalisée
 
-## Q1
-```{r}
+### Question 1
+```{r, fig.width=10, fig.height= 8}
 grid = 10^seq(6,-10,length=100)
 X = as.matrix(xtrain)
 Y = as.matrix(ytrain)
 ridge.fit = glmnet(X, Y, alpha=0, lambda=grid)
-plot(grid, coef(ridge.fit)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept')
+plot(log10(grid), coef(ridge.fit)[1,], type='l', xlab='grid (échelle logarithmique)', ylab='intercept', main='Variation de l\'estimation de l\'intercept', xlim = c(-10, 6), ylim = c(-10, 40))
 ```
+
+On a vu en théorie que l'estimateur de l'intercept n'est pas pénalisé et qu'il dépend grandement de la valeur des autres paramètres estimés qui eux sont étroitement lié à la valeur du paramètre de pénalisation. En lisant de droite à gauche (puisque le paramètre de pénalisation tant vers 0) on retrouve bien que notre paramétrisation se stabilise vers sa limite en zéro. On est donc bien dans le cadre théorique que l'on s'était fixé.
+
 ```{r}
 X.mean = apply(X, 2,mean)
 mean(Y) - X.mean %*% coef(ridge.fit)[-1,1]
 coef(ridge.fit)[1,1]
 ```
 
-```{r}
-xtrain.centered = xtrain - X.mean
-ytrain.centered = ytrain - mean(ytrain)
+En recalculant l'intercept, en fonction des estimées des autres paramètres suivant la formule de la section 1.2, on retrouve exactement le même résultat. La pratique est donc cohérent avec la théorie: c'est rassurant.
+
+```{r, fig.width=10, fig.height= 8}
+xtrain.centered = scale(X, scale = F)
+ytrain.centered = scale(Y, scale = F)
 X.centered = as.matrix(xtrain.centered)
 Y.centered = as.matrix(ytrain.centered)
+
+ridge.fit.centered = glmnet(X, Y.centered, alpha=0, lambda=grid)
+plot(log10(grid), coef(ridge.fit.centered)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept, avec ytrain centré',  xlim = c(-10, 6), ylim = c(-30, 30))
+
 ridge.fit.centered = glmnet(X.centered, Y, alpha=0, lambda=grid)
-plot(grid, coef(ridge.fit.centered)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept')
+plot(log10(grid), coef(ridge.fit.centered)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept, avec xtrain centré',  xlim = c(-10, 6), ylim = c(0, 160))
+
+ridge.fit.centered = glmnet(X.centered, Y.centered, alpha=0, lambda=grid)
+plot(log10(grid), coef(ridge.fit.centered)[1,], type='l', xlab='grid', ylab='intercept', main='Variation de l\'estimation de l\'intercept, avec xtrain et ytrain centrés',  xlim = c(-10, 6), ylim = c(-10, 150))
+
 ```
 
-```{r}
-as.vector(coef(ridge.fit)[1,])
-```
-On remarque un changement seulement lorsque l'on centre les variables $X_j$. L'intercept tend alors vers 150.8 (au lieu de -6.7).
-```{r}
-as.vector(coef(ridge.fit.centered)[1,])
-```
+Si on centre xtrain on obtient une intercept égale à la moyenne empirique de ytrain. C'est ce quiétait attendu au vue de la modélisation. Lorsque l'on centre ytrain on translate simplement la courbe obtenue avec le x choisi (xtrain ou xtrain centré) vers le bas de la moyenne empirique de ytrain. On retrouve bien que pour xtrain et ytrain centrés l'intercept est nulle. Tout correspond avec la théorie pour le moment.
+
+Maintenant nous allons utiliser la partie 1 pour trouver une estimation de $\theta_{\lambda}$ lorsque $\lambda$ tend vers 0. Comme en partie 1 nous n'avons que centré les variables, si nous voulons utiliser nos résultats il ne faut pas réduire nos données.
 
 ```{r}
-X.scaled = scale(X)
-Y.scaled = scale(Y)
+n = nrow(X)
+X.centered = scale(X, scale = F)
+Y.centered = scale(Y, scale = F)
 
-# retrouver la démo de Jérome
+ridge.fit.scaled = glmnet(X.centered, Y.centered, alpha=0, lambda=grid)
+
+sigma <- sqrt(eigen(t(X.centered)%*%X.centered)$values[1:39])
+v <- eigen(t(X.centered)%*%X.centered)$vectors[,1:39]
+u <- eigen(X.centered%*%t(X.centered))$vectors[,1:39]
+
+theta <- 0
+for(i in 1:39){
+  theta <- theta + (v[,i]%*%t(u[,i]))/sigma[i]
+}
+
+theta <- theta %*%Y.centered
+theta0 <- mean(Y) - X.mean %*% theta
 ```
-## Q2
+
+### Question 2
+
 ```{r}
 out.ridge = lm.ridge( sucres ~ ., data=cookie.app, lambda=grid )
-as.vector(coef(out.ridge)[,1])
-```
-```{r}
-as.vector(coef(ridge.fit)[1,])
-```
-On ne retrouve pas les mêmes résultats et je sais pas pourquoi!
+theta.lm.ridge <- as.matrix(coef(out.ridge)[100,])
 
-## Q3
+theta.glmnet <- as.matrix(coef(ridge.fit)[,100])
+theta.theorique <- as.matrix(c(theta0, theta))
+
+paste('Les normes des différents theta estimé lorsque lambda tend vers 0:', norm(theta.lm.ridge), ' , ', norm(theta.glmnet), ' , ', norm(theta))
+```
+
+On ne retrouve pas les mêmes résultats. Cela n'a rien d'anormal. En effet, si on regarde la vignette écrite par les auteurs de **glmnet** on remarque que la fonctionnelle que l'on cherche à minimiser n'est pas la même que dans le cadre de la fonction lm.ridge.. Ensuite, si l'on ne passe pas par la formule théorique il y a des erreurs de calculs commissent par la machine.
+
+### Question 3
+On cherche à affiner l'étendue de a grille. Au vue des différents résultats sur l'intercept on se rend compte que les estimations ont tendances à être stable à partir de $10^{-5}$. De même il y a aucune chance de converger avant $10^1$. Ainsi, on peut redéfinir une grille
+
+
 ```{r}
-set.seed(42)
+grid = 10^seq(1,-5,length=100)
+set.seed(30)
 B = 4
 folds = cvsegments(nrow(X), B, type="random")
 
@@ -301,23 +404,38 @@ lambd.opt = grid[which.min(apply(errors, 2, sum))] # même résultat
 ```
 
 ```{r}
-q=qnorm(0.95)
+q=qnorm(0.85)
 
-plot(log(grid), apply(errors, 2, mean), type='l', col='red', lwd=3, xlab='Log(λ)', ylab='MSE')
+plot(log(grid), apply(errors, 2, mean),type = 'l', col='red', lwd=3, xlab='Log(λ)', ylab='MSE', ylim = c(2,12))
 segments(x0=log(grid), y0=apply(errors, 2, function(err) mean(err) - q * sd(err) / sqrt(B)),
          x1=log(grid), y1=apply(errors, 2, function(err) mean(err) + q * sd(err) / sqrt(B)),
          col='grey')
 ```
 ```{r}
-out.cv.ridge = cv.glmnet(X, Y, alpha=0, lambda=grid, type.measure='mse', nfolds=B)
-plot(out.cv.ridge)
+foldid <- rep(0, 40)
+foldid[unlist(folds[[1]])]=1
+foldid[unlist(folds[[2]])]=2
+foldid[unlist(folds[[3]])]=3
+foldid[unlist(folds[[4]])]=4
+
+out.cv.ridge = cv.glmnet(X, Y, alpha=0, lambda=grid, type.measure='mse', nfolds=B, foldid = foldid)
 plot(out.cv.ridge)
 ```
+
+On obtient les mêmes courbe de MSE et les mêmes intervalles de confiance (à un facteur près). La différence est dù à l'estimateur choisi pour la variance (et donc l'écart type) mais aussi au choix du niveau des intervalles.
+
+On a donc choisi le $\lambda_{optimal}$ qui correspond à la minimisation du MSE. Si on veut être encore plus pointilleux on peut affiner afin de sélectionner un autre candidat qui aurait un intervalle de confiance plus petit. On se contente ici de celui qui minimise le MSE. 
+
 ```{r}
 lm.ridge = glmnet(X, Y, alpha=0, lambda=lambd.opt)
 preds = predict(lm.ridge, newx=as.matrix(xtest))
-mean( (preds - ytest)^2  )
+err.gen <- mean( (preds - ytest)^2  )
+
+paste('L\'erreur de généralisation est (MSE):', round(err.gen, 4))
+paste('Erreur de généralisation relative (maximal):', round(err.gen/min(ytest), 4))
 ```
+
+On obtient une erreur de généralisation qui est plutôt satisfaisante car représentant moins de 7% de la valeure minimale de ytest.
 
 # 4 Régression logistique pénalisée
 
@@ -344,8 +462,12 @@ C'est raisonable
 
 ## Q2
 ```{r}
-cv.out.ridge = cv.glmnet(X, z, alpha=0, nfolds=B, lambda=grid)
-cv.out.lasso = cv.glmnet(X, z, alpha=1, nfolds=B, lambda=grid) 
+grid = 10^seq(6,-10,length=100)
+cv.out.ridge = cv.glmnet(X, z, alpha=0, family = binomial('logit'), nfolds=B, lambda=grid, foldid = foldid)
+cv.out.lasso = cv.glmnet(X, z, alpha=1, family = binomial('logit'), nfolds=B, lambda=grid, foldid = foldid)
+
+theta_r <- coef(cv.out.ridge, s = "lambda.min")
+lambda_r <- cv.out.ridge$lambda.min
 
 plot(cv.out.ridge, main='Ridge')
 plot(cv.out.lasso, main='Lasso')
@@ -381,5 +503,5 @@ for (s in seq(0, 1, .01))
   }
 }
 
-plot(1-beta, alpha, type="l")
+plot(1-beta, alpha, xlim = c(0,1), ylim = c(0,1))
 ```
