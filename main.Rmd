@@ -1,10 +1,14 @@
 ---
 title: "Projet STA203"
 output:
+  github_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+    theme: unified
+  word_document: default
   html_document:
     df_print: paged
-  pdf_document: default
-  word_document: default
 authors: Achraf Ait Sidi Hammou, Jérôme Roche
 ---
 
@@ -12,8 +16,8 @@ authors: Achraf Ait Sidi Hammou, Jérôme Roche
 knitr::opts_chunk$set(echo = TRUE)
 rm(list=ls())
 graphics.off()
-#setwd('/home/achraf/Documents/Areas/ENSTA/STA203/projet/')
-setwd('~/Documents/ENSTA_2021/STA203/Projet/')
+setwd('/home/achraf/Documents/Areas/ENSTA/STA203/projet/')
+# setwd('~/Documents/ENSTA_2021/STA203/Projet/')
 set.seed(42)
 
 require(corrplot)
@@ -24,6 +28,7 @@ require(MASS)
 require(latex2exp)
 ```
 
+# Introduction
 # 1 Un peu de théorie
 
 Le nombre de spectres n étant très largement inférieur au nombre de fréquences p, cette étude rentre dans le cadre des données dites de grande dimension.
@@ -316,8 +321,8 @@ coef(ridge.fit)[1,1]
 En recalculant l'intercept, en fonction des estimées des autres paramètres suivant la formule de la section 1.2, on retrouve exactement le même résultat. La pratique est donc cohérent avec la théorie: c'est rassurant.
 
 ```{r, fig.width=10, fig.height= 8}
-xtrain.centered = scale(X, scale = F)
-ytrain.centered = scale(Y, scale = F)
+xtrain.centered = scale(X, scale=F)
+ytrain.centered = scale(Y, scale=F)
 X.centered = as.matrix(xtrain.centered)
 Y.centered = as.matrix(ytrain.centered)
 
@@ -368,7 +373,7 @@ theta.theorique <- as.matrix(c(theta0, theta))
 paste('Les normes des différents theta estimé lorsque lambda tend vers 0:', norm(theta.lm.ridge), ' , ', norm(theta.glmnet), ' , ', norm(theta))
 ```
 
-On ne retrouve pas les mêmes résultats. Cela n'a rien d'anormal. En effet, si on regarde la vignette écrite par les auteurs de **glmnet** on remarque que la fonctionnelle que l'on cherche à minimiser n'est pas la même que dans le cadre de la fonction lm.ridge.. Ensuite, si l'on ne passe pas par la formule théorique il y a des erreurs de calculs commissent par la machine.
+On ne retrouve pas les mêmes résultats. Cela n'a rien d'anormal. En effet, si on regarde la vignette écrite par les auteurs de **glmnet** on remarque que la fonctionnelle que l'on cherche à minimiser n'est pas la même que dans le cadre de la fonction **lm.ridge**. Ensuite, si l'on ne passe pas par la formule théorique il y a des erreurs de calculs commisent par la machine.
 
 ### Question 3
 On cherche à affiner l'étendue de a grille. Au vue des différents résultats sur l'intercept on se rend compte que les estimations ont tendances à être stable à partir de $10^{-5}$. De même il y a aucune chance de converger avant $10^1$. Ainsi, on peut redéfinir une grille
@@ -376,9 +381,13 @@ On cherche à affiner l'étendue de a grille. Au vue des différents résultats 
 
 ```{r}
 grid = 10^seq(1,-5,length=100)
-set.seed(30)
 B = 4
 folds = cvsegments(nrow(X), B, type="random")
+foldid <- rep(0, 40)
+foldid[unlist(folds[[1]])]=1
+foldid[unlist(folds[[2]])]=2
+foldid[unlist(folds[[3]])]=3
+foldid[unlist(folds[[4]])]=4
 
 errors = matrix(NA, B, length(grid))
 
@@ -400,8 +409,6 @@ for (b in 1:B)
 lambd.opt = grid[which.min(apply(errors, 2, mean))]
 lambd.opt = grid[which.min(apply(errors, 2, sum))] # même résultat
 ```
-```{r}
-```
 
 ```{r}
 q=qnorm(0.85)
@@ -411,13 +418,8 @@ segments(x0=log(grid), y0=apply(errors, 2, function(err) mean(err) - q * sd(err)
          x1=log(grid), y1=apply(errors, 2, function(err) mean(err) + q * sd(err) / sqrt(B)),
          col='grey')
 ```
-```{r}
-foldid <- rep(0, 40)
-foldid[unlist(folds[[1]])]=1
-foldid[unlist(folds[[2]])]=2
-foldid[unlist(folds[[3]])]=3
-foldid[unlist(folds[[4]])]=4
 
+```{r}
 out.cv.ridge = cv.glmnet(X, Y, alpha=0, lambda=grid, type.measure='mse', nfolds=B, foldid = foldid)
 plot(out.cv.ridge)
 ```
@@ -438,42 +440,61 @@ paste('Erreur de généralisation relative (maximal):', round(err.gen/min(ytest)
 On obtient une erreur de généralisation qui est plutôt satisfaisante car représentant moins de 7% de la valeure minimale de ytest.
 
 # 4 Régression logistique pénalisée
+### Question 1
 
-## Q1
-Regression logistique:
+Si $Z$ est la variable à expliquer et $X$ les variables explicatives, alors:
 $$
-Z_i \sim \mathcal B(1, \pi(x_i)) \; ; i = 1,...,n
+Z \sim \mathcal B(1, \pi(X))
+\\
+logit(\pi(X)) = X \theta
 $$
-$$
-logit(\pi(x_i)) = x_i \theta
-$$
+
+```{r}
+load('cookie.app.RData')
+load('cookie.val.RData')
+
+ytrain = cookie.app$sucres
+X = as.matrix(cookie.app[,-1])
+
+ytest = cookie.val$sucres
+xtest = as.matrix(cookie.val[,-1])
+```
+
 
 ```{r}
 z = ytrain > 18
 ztest = ytest > 18
-## peut être qu'il faut dire si c'est en dessous ou au dessus de 18 (0 / 1)
 ```
 Sont ils équilibrés:
 ```{r}
 table(z)
 table(ztest)
 ```
-C'est raisonable
+On a dans les 2 jeux de données environ 40 pourcent des observations pour lesquelles la teneur en sucre est supérieur au seuil de 18. Les variables $z$ et $ztest$ sont donc relativement bien équilibrées.
 
-## Q2
+### Question 2
 ```{r}
-grid = 10^seq(6,-10,length=100)
-cv.out.ridge = cv.glmnet(X, z, alpha=0, family = binomial('logit'), nfolds=B, lambda=grid, foldid = foldid)
-cv.out.lasso = cv.glmnet(X, z, alpha=1, family = binomial('logit'), nfolds=B, lambda=grid, foldid = foldid)
+grid = 10^seq(-1,2,length=100)
+B = 3
+folds = cvsegments(nrow(xtrain), B, type="random")
+foldid <- rep(0, 40)
+foldid[unlist(folds[[1]])]=1
+foldid[unlist(folds[[2]])]=2
+foldid[unlist(folds[[3]])]=3
 
-theta_r <- coef(cv.out.ridge, s = "lambda.min")
-lambda_r <- cv.out.ridge$lambda.min
+glmnet(X, z, alpha=0, family=binomial('logit'))
+
+cv.out.ridge = cv.glmnet(X, z, alpha=0, family='binomial', nfolds=B, lambda=grid, foldid=foldid)
+cv.out.lasso = cv.glmnet(X, z, alpha=1, family='binomial', nfolds=B, lambda=grid, foldid=foldid)
+
+theta_r = coef(cv.out.ridge, s = "lambda.min")
+lambda_r = cv.out.ridge$lambda.min
 
 plot(cv.out.ridge, main='Ridge')
 plot(cv.out.lasso, main='Lasso')
 ```
 
-## Q3
+### Question 3
 ```{r}
 sensibility = function(res) res[2,2] / sum(res[2,])
 specificity = function(res) res[1,1] / sum(res[1,])
@@ -483,7 +504,7 @@ beta = NULL
 
 for (s in seq(0, 1, .01))
 {
-  preds = 1/ (1 + exp( - cbind(1, as.matrix(xtrain)) %*% as.matrix(coef)))
+  preds = 1/ (1 + exp( - cbind(1, X) %*% as.matrix(coef)))
   res = table(preds > s, z)
   
   if(sum(preds > s) == 0)
@@ -505,3 +526,4 @@ for (s in seq(0, 1, .01))
 
 plot(1-beta, alpha, xlim = c(0,1), ylim = c(0,1))
 ```
+# Conclusion
