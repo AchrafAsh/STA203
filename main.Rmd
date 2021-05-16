@@ -458,15 +458,11 @@ X = as.matrix(cookie.app[,-1])
 
 ytest = cookie.val$sucres
 xtest = as.matrix(cookie.val[,-1])
-```
 
 
-```{r}
 z = ytrain > 18
 ztest = ytest > 18
-```
-Sont ils équilibrés:
-```{r}
+
 table(z)
 table(ztest)
 ```
@@ -476,7 +472,7 @@ On a dans les 2 jeux de données environ 40 pourcent des observations pour lesqu
 ```{r}
 grid = 10^seq(-1,2,length=100)
 B = 3
-folds = cvsegments(nrow(xtrain), B, type="random")
+folds = cvsegments(nrow(X), B, type="random")
 foldid <- rep(0, 40)
 foldid[unlist(folds[[1]])]=1
 foldid[unlist(folds[[2]])]=2
@@ -490,40 +486,75 @@ cv.out.lasso = cv.glmnet(X, z, alpha=1, family='binomial', nfolds=B, lambda=grid
 theta_r = coef(cv.out.ridge, s = "lambda.min")
 lambda_r = cv.out.ridge$lambda.min
 
+theta_l = coef(cv.out.lasso, s = "lambda.min")
+lambda_l = cv.out.lasso$lambda.min
+
 plot(cv.out.ridge, main='Ridge')
 plot(cv.out.lasso, main='Lasso')
 ```
-
 ### Question 3
 ```{r}
-sensibility = function(res) res[2,2] / sum(res[2,])
-specificity = function(res) res[1,1] / sum(res[1,])
+ROC = function(pred, s, z) { # pred: prediction, s: seuil, z: variable à expliquer
+  table = table((pred > s), z)
+  
+  if (dim(table)[1]==1) {return(list(x=0, y=0))}
+  
+  sensitivity = table[2,2]/sum(table[,2])
+  specificity = table[1,1]/sum(table[,1])
+  
+  return(list(x=1-specificity, y=sensitivity))
+}
 
-alpha = NULL
-beta = NULL
+sigmoid = function(x, theta) {
+  return(
+    1/ (1 + exp( - cbind(1, x) %*% as.matrix(theta)))
+  )
+}
+```
+
+
+```{r}
+points_train = NULL
+points_test = NULL
 
 for (s in seq(0, 1, .01))
 {
-  preds = 1/ (1 + exp( - cbind(1, X) %*% as.matrix(coef)))
-  res = table(preds > s, z)
-  
-  if(sum(preds > s) == 0)
-  {
-    alpha = cbind(alpha, 0)
-    beta = cbind(beta, res[1] / sum(res))
-  }
-  else {
-    if(sum(preds > s) == length(preds))
-    {
-      alpha = cbind(alpha, res[2] / sum(res))
-      beta = cbind(beta, 0)
-    } else {
-      alpha = cbind(alpha, res[2,2] / sum(res[2,]))
-      beta = cbind(beta, res[1,1] / sum(res[1,]))
-    }
-  }
+  roc_train = ROC(sigmoid(X, theta_r), s, z)
+  roc_test = ROC(sigmoid(xtest, theta_r), s, ztest) 
+  points_train$x = cbind(points_train$x, roc_train$x)
+  points_train$y = cbind(points_train$y, roc_train$y)
+  points_test$x = cbind(points_test$x, roc_test$x)
+  points_test$y = cbind(points_test$y, roc_test$y)
 }
 
-plot(1-beta, alpha, xlim = c(0,1), ylim = c(0,1))
+plot(points_train, col='green', main='Courbe ROC Ridge', xlab='1-specificity', ylab='sensitivity')
+points(points_test, col='blue')
+abline(a = 0, b = 1, col='red', lty=2)
+legend("bottomright", legend=c('apprentissage', 'test', 'alea'), col=c('green','blue', 'red'), pch=c(1,1, 46), lty=c(0, 0, 2))
 ```
+Le modèle retenu en ridge est très satisfaisant car il s'approche du modèle parfait. De plus, en apprentissage la courbe n'est pas trop détériorée, ce qui témoigne d'une bonne généralisation sur de nouvelles données.
+
+```{r}
+points_train = NULL
+points_test = NULL
+
+for (s in seq(0, 1, .01))
+{
+  roc_train = ROC(sigmoid(X, theta_l), s, z)
+  roc_test = ROC(sigmoid(xtest, theta_l), s, ztest) 
+  points_train$x = cbind(points_train$x, roc_train$x)
+  points_train$y = cbind(points_train$y, roc_train$y)
+  points_test$x = cbind(points_test$x, roc_test$x)
+  points_test$y = cbind(points_test$y, roc_test$y)
+}
+
+plot(points_train, col='green', main='Courbe ROC Lasso', xlab='1-specificity', ylab='sensitivity')
+points(points_test, col='blue')
+abline(a = 0, b = 1, col='red', lty=2)
+legend("bottomright", legend=c('apprentissage', 'test', 'alea'), col=c('green','blue', 'red'), pch=c(1,1, 46), lty=c(0, 0, 2))
+```
+Le modèle retenu en lasso est quant à lui très mauvais même en apprentissage. La courbe de ROC en test est très proche d'un modèle aléatoire.
+
 # Conclusion
+
+
